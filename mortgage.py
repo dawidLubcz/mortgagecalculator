@@ -1,113 +1,136 @@
-class Mortgage:
-    def __init__(self, value, percent, years, commission = 0):
-        self.mValue = value
-        self.mPercent = percent
-        self.mPaysPerYear = 12
-        self.mPaysNum = years * self.mPaysPerYear
-        self.mCommision = commission
+import copy
+import dataclasses
 
-    def __getInstallment(self, value, paysNum, percent, paysPerYear):
-        sum  = 0
-        for i in range(1, paysNum + 1):
-            sum += (1.00 + percent / paysPerYear) ** -i
+
+@dataclasses.dataclass
+class ExcessPayment:
+    def __init__(self, month_number: int, value: int):
+        self._month_number = month_number
+        self._value = value
+
+    @property
+    def month(self):
+        return self._month_number
+
+    @property
+    def value(self):
+        return self._value
+
+    def __repr__(self):
+        return f"month={self.month} value={self.value}"
+
+
+class Mortgage:
+    def __init__(self, credit_value: float, credit_percentage: float, months: int, credit_commission:int=0):
+        self._credit_value = credit_value
+        self._credit_percentage = credit_percentage
+        self._months = months
+        self._credit_commission = credit_commission
+        self._pays_per_year = 12
+
+    @staticmethod
+    def _get_installment(value, pays_num, percent, pays_per_year):
+        sum = 0
+        for i in range(1, pays_num + 1):
+            sum += (1.00 + percent / pays_per_year) ** -i
         return value / sum
 
-    def __getTimetableConstant(self, value, paysNum, percent, paysPerYear, excessPayments, recalculate):
-        toPay = value
-        constantInstallment = self.__getInstallment(value, paysNum, percent, paysPerYear)
+    def _get_timetable_constant(self, value, pays_num, percent, pays_per_year, excess_payments, recalculate):
+        to_pay = value
+        constant_installment = Mortgage._get_installment(value, pays_num, percent, pays_per_year)
         timetable = []
-        realValue = 0
+        real_value = 0
 
-        excessPaymentsCount = len(excessPayments)
-        excessPaymentUse = excessPaymentsCount > 0 and excessPayments[0][0] > 0
-        excessPaymentsIndex = 0
+        for i in range(0, pays_num):
+            interest = to_pay * percent / pays_per_year
+            capital = constant_installment - interest
+            installment = constant_installment
 
-        for i in range(0, paysNum):
-            interest = toPay * percent / paysPerYear
-            capital = constantInstallment - interest
-            installment = constantInstallment
-            excess = 0
-
-            #excess payments
-            if excessPaymentUse and i == excessPayments[excessPaymentsIndex][0] - 1:
-                excess = excessPayments[excessPaymentsIndex][1]
-                excessPaymentsIndex += 1
-                if excessPaymentsIndex >= excessPaymentsCount:
-                    excessPaymentUse = False
-
+            excess = Mortgage._check_excess_payments(i, excess_payments)
             capital += excess
-            realValue += capital + interest
+
+            real_value += capital + interest
             timetable.append((installment, interest, capital, excess))
-            toPay -= capital
-            if toPay <= 0:
+            to_pay -= capital
+            if to_pay <= 0:
                 break
             if recalculate:
-                constantInstallment = self.__getInstallment(toPay, paysNum - i - 1, percent, paysPerYear)
+                constant_installment = self._get_installment(to_pay, pays_num - i - 1, percent, pays_per_year)
 
-        return timetable, realValue + self.mCommision
+        return timetable, real_value + self._credit_commission
 
-    def __getTimetableDecreasing(self, value, paysNum, percent, paysPerYear, excessPayments, recalculate = "TODO"):
-        toPay = value
-        constantCapital = value / paysNum
+    @staticmethod
+    def _prepare_excess_payments(excess_payments: list):
+        def sort_func(item: ExcessPayment):
+            return item.month
+        excess_payments.sort(key=sort_func)
+
+    @staticmethod
+    def _check_excess_payments(payment_month: int, excess_payments):
+        excess = 0
+        if len(excess_payments) > 0 and excess_payments[0].month - 1 == payment_month:
+            excess = excess_payments[0].value
+            excess_payments.pop(0)
+        return excess
+
+    def _get_timetable_decreasing(self, value, pays_num, percent, pays_per_year, excess_payments, recalculate ="TODO"):
+        def recalculate(value_left, payment_number):
+            return value_left / payment_number
+
+        to_pay = value
+        constant_capital = recalculate(value, pays_num)
         timetable = []
-        realValue = 0
+        real_value = 0
 
-        excessPaymentsCount = len(excessPayments)
-        excessPaymentUse = excessPaymentsCount > 0 and excessPayments[0][0] > 0
-        excessPaymentsIndex = 0
-
-        for i in range(0, paysNum):
-            interest = toPay * percent / paysPerYear
-            capital = constantCapital
-            installment = constantCapital + interest
-            excess = 0
-
-            #excess payments
-            if excessPaymentUse and i == excessPayments[excessPaymentsIndex][0] - 1:
-                excess = excessPayments[excessPaymentsIndex][1]
-                excessPaymentsIndex += 1
-                if excessPaymentsIndex >= excessPaymentsCount:
-                    excessPaymentUse = False
-
+        for i in range(0, pays_num):
+            interest = to_pay * percent / pays_per_year
+            capital = constant_capital
+            installment = constant_capital + interest
+            excess = Mortgage._check_excess_payments(i, excess_payments)
             capital += excess
             timetable.append((installment, interest, capital, excess))
-            realValue += interest + capital
-            toPay -= capital
-            if toPay <= 0:
+            real_value += interest + capital
+            to_pay -= capital
+            if excess > 0:
+                constant_capital = recalculate(to_pay, pays_num - i)
+            if to_pay <= 0:
                 break
 
-        return timetable, realValue + self.mCommision
+        return timetable, real_value + self._credit_commission
 
-    def getTimetable(self, excessPayments = [], constant = True, recalculate = False):
-        '''
-        :param excessPayments: [[month, value], [month, value]...]
+    def get_timetable(self, excess_payments: list = None, constant: bool = True, recalculate: bool = False):
+        """
+        :param excess_payments: [[month, value], [month, value]...]
         :param constant: [True if fixed installment ]
+        :param recalculate: [TODO ]
         :return: timetable, mortgage value
-        '''
+        """
+        excess_payments = copy.deepcopy(excess_payments) or []
+        Mortgage._prepare_excess_payments(excess_payments)
         if constant:
-            return self.__getTimetableConstant(
-                self.mValue, self.mPaysNum, self.mPercent, self.mPaysPerYear, excessPayments, recalculate)
+            return self._get_timetable_constant(
+                self._credit_value, self._months, self._credit_percentage, self._pays_per_year, excess_payments, recalculate)
         else:
-            return self.__getTimetableDecreasing(
-                self.mValue, self.mPaysNum, self.mPercent, self.mPaysPerYear, excessPayments, recalculate)
+            return self._get_timetable_decreasing(
+                self._credit_value, self._months, self._credit_percentage, self._pays_per_year, excess_payments, recalculate)
 
-#example
+
+# example
 def main():
-    value = 300000
-    years = 20
-    percent = 0.045
+    value = 234902
+    months = 212
+    percent = 0.0347
     commission = 0
 
-    excess = []
-    for i in range(0, 20 * 12): # first year 1k per month
-        excess.append([i + 1, 1000])
-   # offset = len(excess)
-    #for i in range(0 + offset, offset + (1 * 12)):  # second year 2k per month
-        #excess.append([i + 1, 2000])
+    # TODO: Create object for excess payments to accept formulas i.e for each even month add 1000$
+    excess_payments = [
+        ExcessPayment(2, 10000)
+    ]
 
-    o = Mortgage(value=value, years=years, percent=percent, commission=commission)
-    tt, rv = o.getTimetable(excess, constant=False, recalculate=True)
-    ttn, rvn = o.getTimetable(constant=False, recalculate=True)
+    o = Mortgage(credit_value=value, months=months, credit_percentage=percent, credit_commission=commission)
+    o1 = Mortgage(credit_value=value, months=months, credit_percentage=percent, credit_commission=commission)
+    tt, rv = o.get_timetable(excess_payments, constant=False, recalculate=True)
+    ttn, rvn = o1.get_timetable(excess_payments, constant=True, recalculate=True)
 
     for i in range(0, len(ttn)):
         if len(tt) <= i:
@@ -118,9 +141,10 @@ def main():
             k = tt[i][2]
             n = tt[i][3]
         print("%d. installment: %s, interest: %s, capital: %s, excess: %s || installment: %s, interest: %s, capital: %s, excess: %s" % (i+1, ttn[i][0], ttn[i][1], ttn[i][2], ttn[i][3], r, o, k, n))
-    print("Mortgage value 1: " + str(rvn))
-    print("Mortgage value 2: " + str(rv))
+    print("Mortgage value constant: %0.2f, %0.2f" % (rvn, rvn - value))
+    print("Mortgage value decreasing: %0.2f, %0.2f" % (rv, rv - value))
     print("Difference: cash=%s, months=%s;%s, years=%s;%s "  % (str(rvn-rv), str(len(ttn)), str(len(tt)), str(len(ttn)/12), str(len(tt)/12)))
+
 
 if __name__ == '__main__':
     main()
