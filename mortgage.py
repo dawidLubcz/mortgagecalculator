@@ -44,12 +44,14 @@ class CreditUpdate:
 
 
 class CreditParamsUpdate:
-    def on_installment(self, installment_index: int, left_to_pay: float, percent: float) -> CreditUpdate:
+    def on_installment(
+            self, installment_index: int, left_to_pay: float, percent: float) -> CreditUpdate:
         pass
 
 
 class CreditChanges:
-    def __init__(self, excess_payments: list = None, credit_params_callback: CreditParamsUpdate = None):
+    def __init__(
+            self, excess_payments: list = None, credit_params_callback: CreditParamsUpdate = None):
         self._excess_payments = excess_payments or []
         self._prepare_excess_payments(self._excess_payments)
         self._on_installment_callback = credit_params_callback or CreditParamsUpdate()
@@ -70,15 +72,20 @@ class CreditChanges:
 
     def get_credit_update(self, installment_index, left_to_pay, percent) -> CreditUpdate:
         result = CreditUpdate(0, percent)
-        result = self._on_installment_callback.on_installment(installment_index, left_to_pay, percent) or result
-        result.excess_payment += self._check_excess_payments(installment_index, self._excess_payments)
+        result = self._on_installment_callback.on_installment(
+            installment_index, left_to_pay, percent) or result
+        result.excess_payment += self._check_excess_payments(
+            installment_index, self._excess_payments)
         return result
 
 
 class Mortgage:
     """Class for calculating credit fees allows to simulate and plan credit repayment."""
 
-    def __init__(self, credit_value: float, credit_percentage: float, months: int = 12, credit_commission: int = 0):
+    def __init__(self, credit_value: float,
+                 credit_percentage: float,
+                 months: int = 12,
+                 credit_commission: int = 0):
         """
         :param credit_value: credit value - money to be repaid
         :param credit_percentage: credit percentage
@@ -98,10 +105,14 @@ class Mortgage:
             tmp_sum += (1.00 + percent / pays_per_year) ** -i
         return value / tmp_sum
 
-    def _get_timetable_constant(
-            self, value: float, pays_num: int, percent: float, pays_per_year: int, credit_updates: CreditChanges):
+    def _get_timetable_constant(self, value: float,
+                                pays_num: int,
+                                percent: float,
+                                pays_per_year: int,
+                                credit_updates: CreditChanges):
         left_to_pay = value
-        constant_installment_value = Mortgage._get_constant_installment_value(value, pays_num, percent, pays_per_year)
+        constant_installment_value = Mortgage._get_constant_installment_value(
+            value, pays_num, percent, pays_per_year)
         timetable = []
         summary_cost = 0
 
@@ -120,12 +131,17 @@ class Mortgage:
             left_to_pay -= capital
             if left_to_pay <= 0:
                 break
-            constant_installment_value = self._get_constant_installment_value(left_to_pay, pays_num - i - 1, percent, pays_per_year)
+            constant_installment_value = self._get_constant_installment_value(
+                left_to_pay, pays_num - i - 1, percent, pays_per_year)
 
         return timetable, summary_cost + self._credit_commission
 
-    def _get_timetable_decreasing(
-            self, value: float, pays_num: int, percent: float, pays_per_year: int, credit_updates: CreditChanges):
+    def _get_timetable_decreasing(self, value: float,
+                                  pays_num: int,
+                                  percent: float,
+                                  pays_per_year: int,
+                                  credit_updates: CreditChanges):
+
         def recalculate(value_left, payment_number):
             return value_left / payment_number
 
@@ -162,11 +178,17 @@ class Mortgage:
         """
         credit_updates = copy.deepcopy(credit_updates) or CreditChanges()
         if constant:
-            return self._get_timetable_constant(
-                self._credit_value, self._months, self._credit_percentage, self._pays_per_year, credit_updates)
+            return self._get_timetable_constant(self._credit_value,
+                                                self._months,
+                                                self._credit_percentage,
+                                                self._pays_per_year,
+                                                credit_updates)
         else:
-            return self._get_timetable_decreasing(
-                self._credit_value, self._months, self._credit_percentage, self._pays_per_year, credit_updates)
+            return self._get_timetable_decreasing(self._credit_value,
+                                                  self._months,
+                                                  self._credit_percentage,
+                                                  self._pays_per_year,
+                                                  credit_updates)
 
 
 # example
@@ -176,7 +198,10 @@ def main():
     ]
 
     class CreditParamsUpdateExt(CreditParamsUpdate):
-        def on_installment(self, installment_index: int, left_to_pay: float, percent: float) -> CreditUpdate:
+        def on_installment(self,
+                           installment_index: int,
+                           left_to_pay: float,
+                           percent: float) -> CreditUpdate:
             result = CreditUpdate(0, percent)
             # if installment_index > 4:
             #     result.percentage = 0.07
@@ -189,8 +214,10 @@ def main():
     percent = 0.0347
     commission = 0
 
-    o = Mortgage(credit_value=value, months=months, credit_percentage=percent, credit_commission=commission)
-    o1 = Mortgage(credit_value=value, months=months, credit_percentage=percent, credit_commission=commission)
+    o = Mortgage(credit_value=value, months=months,
+                 credit_percentage=percent, credit_commission=commission)
+    o1 = Mortgage(credit_value=value, months=months,
+                  credit_percentage=percent, credit_commission=commission)
     tt, rv = o.get_timetable(updates, constant=False)
     ttn, rvn = o1.get_timetable(updates, constant=True)
 
@@ -202,10 +229,13 @@ def main():
             o = tt[i][1]
             k = tt[i][2]
             n = tt[i][3]
-        print("%d. installment: %s, interest: %s, capital: %s, excess: %s || installment: %s, interest: %s, capital: %s, excess: %s" % (i+1, ttn[i][0], ttn[i][1], ttn[i][2], ttn[i][3], r, o, k, n))
+        print("%d. installment: %s, interest: %s, capital: %s, excess: %s ||"
+              " installment: %s, interest: %s, capital: %s, excess: %s"
+              % (i+1, ttn[i][0], ttn[i][1], ttn[i][2], ttn[i][3], r, o, k, n))
     print("Mortgage value constant: %0.2f, %0.2f" % (rvn, rvn - value))
     print("Mortgage value decreasing: %0.2f, %0.2f" % (rv, rv - value))
-    print("Difference: cash=%s, months=%s;%s, years=%s;%s "  % (str(rvn-rv), str(len(ttn)), str(len(tt)), str(len(ttn)/12), str(len(tt)/12)))
+    print("Difference: cash=%s, months=%s;%s, years=%s;%s "
+          % (str(rvn-rv), str(len(ttn)), str(len(tt)), str(len(ttn)/12), str(len(tt)/12)))
 
 
 if __name__ == '__main__':
