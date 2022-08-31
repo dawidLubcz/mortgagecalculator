@@ -230,7 +230,8 @@ def main():
     """Example usage"""
 
     excess_payments = [
-        # ExcessPayment(2, 10000)
+        ExcessPayment(2, 10000),
+        ExcessPayment(4, 20000),
     ]
 
     class CreditParamsUpdateExt(CreditParameterUpdateListener):
@@ -248,13 +249,13 @@ def main():
     callback = CreditParamsUpdateExt()
     updates = CreditChanges(excess_payments, credit_params_callback=callback)
 
-    value = 234902
-    months = 212
-    percent = 0.0347
+    value = 1000000
+    months = 360
+    percent = 0.04
     commission = 0
 
     interest_decreasing = Mortgage(credit_value=value, months=months,
-                             credit_percentage=percent, credit_commission=commission)
+                                   credit_percentage=percent, credit_commission=commission)
 
     time_table_decreasing, real_costs_decreasing = interest_decreasing.get_timetable(
         updates, constant=False)
@@ -270,11 +271,13 @@ def main():
             interest_decreasing = time_table_decreasing[i][1]
             capital_decreasing = time_table_decreasing[i][2]
             excess_decreasing = time_table_decreasing[i][3]
-        print(f"{i+1}. "
-              f"installment: {time_table_constant[i][0]}, interest: {time_table_constant[i][1]}, "
-              f"capital: {time_table_constant[i][2]}, excess: {time_table_constant[i][3]} || "
-              f"installment: {real_cost_decreasing}, interest: {interest_decreasing}, "
-              f"capital: {capital_decreasing}, excess: {excess_decreasing}")
+
+        print(
+            f"{i+1}. "
+            f"installment: {time_table_constant[i][0]:.2f}, interest: {time_table_constant[i][1]:.2f}, "
+            f"capital: {time_table_constant[i][2]:.2f}, excess: {time_table_constant[i][3]:.2f} || "
+            f"installment: {real_cost_decreasing:.2f}, interest: {interest_decreasing:.2f}, "
+            f"capital: {capital_decreasing:.2f}, excess: {excess_decreasing:.2f}")
 
     print(f"Mortgage value constant: {real_value_constant:.2f}, "
           f"costs: {real_value_constant - value:.2f}")
