@@ -1,126 +1,292 @@
+#!/usr/bin/python3
+
+__doc__ = """Script for calculating and simulating credit costs based on input parameters"""
+
+
+import copy
+import dataclasses
+
+
+@dataclasses.dataclass
+class ExcessPayment:
+    """Single capital overpayment"""
+    def __init__(self, month_number: int, value: int):
+        self._month_number = month_number
+        self._value = value
+
+    @property
+    def month(self):
+        """Month on which overpayment should happen"""
+        return self._month_number
+
+    @property
+    def value(self):
+        """Capital value"""
+        return self._value
+
+    def __repr__(self):
+        return f"month={self.month} value={self.value}"
+
+
+@dataclasses.dataclass
+class CreditParameterUpdate:
+    """Type used by CreditParameterUpdateListener.on_installment
+    for updating credit parameters i.e. percentage change or capital overpayment"""
+    def __init__(self, excess_payment, percentage):
+        self._excess_payment = excess_payment
+        self._percentage = percentage
+
+    @property
+    def excess_payment(self):
+        """Capital overpayment getter"""
+        return self._excess_payment
+
+    @excess_payment.setter
+    def excess_payment(self, excess_payment):
+        """Capital overpayment setter"""
+        self._excess_payment = excess_payment
+
+    @property
+    def percentage(self):
+        """Percentage change getter"""
+        return self._percentage
+
+    @percentage.setter
+    def percentage(self, percent):
+        """Percentage change setter"""
+        self._percentage = percent
+
+
+class CreditParameterUpdateListener:
+    """Object if this class is used by CreditChanges for listening
+    on every installment calculation to be able to apply some formula
+    to change credit percentage in time for example"""
+    def on_installment(self,
+                       installment_index: int,
+                       left_to_pay: float,
+                       percent: float) -> CreditParameterUpdate:
+        """
+        This method will be called on each installment calculation.
+        :param installment_index: installment number / month - starting from 0
+        :param left_to_pay: capital left to pay
+        :param percent: current credit percentage
+        :return: CreditParameterUpdate, parameters update
+        """
+        return CreditParameterUpdate(0, percent)
+
+
+class CreditChanges:
+    """Class for managing all credit changes, excess payment, percentage updates etc"""
+    def __init__(self,
+                 excess_payments: list = None,
+                 credit_params_callback: CreditParameterUpdateListener = None):
+        self._excess_payments = excess_payments or []
+        self._prepare_excess_payments(self._excess_payments)
+        self._on_installment_callback = credit_params_callback or CreditParameterUpdateListener()
+
+    @staticmethod
+    def _prepare_excess_payments(excess_payments: list):
+        def sort_func(item: ExcessPayment):
+            return item.month
+        excess_payments.sort(key=sort_func)
+
+    @staticmethod
+    def _check_excess_payments(payment_month: int, excess_payments):
+        excess = 0
+        if len(excess_payments) > 0 and excess_payments[0].month - 1 == payment_month:
+            excess = excess_payments[0].value
+            excess_payments.pop(0)
+        return excess
+
+    def get_credit_update(self, installment_index, left_to_pay, percent) -> CreditParameterUpdate:
+        """
+        Method called by Mortgage class for each installment calculation
+        :param installment_index: installment number / month - starting from 0
+        :param left_to_pay: capital left to pay
+        :param percent: current credit percentage
+        :return:
+        """
+        result = CreditParameterUpdate(0, percent)
+        result = self._on_installment_callback.on_installment(
+            installment_index, left_to_pay, percent) or result
+        result.excess_payment += self._check_excess_payments(
+            installment_index, self._excess_payments)
+        return result
+
+
 class Mortgage:
-    def __init__(self, value, percent, years, commission = 0):
-        self.mValue = value
-        self.mPercent = percent
-        self.mPaysPerYear = 12
-        self.mPaysNum = years * self.mPaysPerYear
-        self.mCommision = commission
+    """Class for calculating credit fees allows to simulate and plan credit repayment."""
 
-    def __getInstallment(self, value, paysNum, percent, paysPerYear):
-        sum  = 0
-        for i in range(1, paysNum + 1):
-            sum += (1.00 + percent / paysPerYear) ** -i
-        return value / sum
+    def __init__(self, credit_value: float,
+                 credit_percentage: float,
+                 months: int = 12,
+                 credit_commission: int = 0):
+        """
+        :param credit_value: credit value - money to be repaid
+        :param credit_percentage: credit percentage
+        :param months: loan repayment length in months
+        :param credit_commission: commission to pay - one time payment
+        """
+        self._credit_value = credit_value
+        self._credit_percentage = credit_percentage
+        self._months = months
+        self._credit_commission = credit_commission
+        self._pays_per_year = 12
 
-    def __getTimetableConstant(self, value, paysNum, percent, paysPerYear, excessPayments, recalculate):
-        toPay = value
-        constantInstallment = self.__getInstallment(value, paysNum, percent, paysPerYear)
+    @staticmethod
+    def _get_constant_installment_value(value, pays_num, percent, pays_per_year):
+        tmp_sum = 0
+        for i in range(1, pays_num + 1):
+            tmp_sum += (1.00 + percent / pays_per_year) ** -i
+        return value / tmp_sum
+
+    def _get_timetable_constant(self, value: float,
+                                pays_num: int,
+                                percent: float,
+                                pays_per_year: int,
+                                credit_updates: CreditChanges):
+        left_to_pay = value
+        constant_installment_value = Mortgage._get_constant_installment_value(
+            value, pays_num, percent, pays_per_year)
         timetable = []
-        realValue = 0
+        summary_cost = 0
 
-        excessPaymentsCount = len(excessPayments)
-        excessPaymentUse = excessPaymentsCount > 0 and excessPayments[0][0] > 0
-        excessPaymentsIndex = 0
+        for i in range(0, pays_num):
+            interest = left_to_pay * percent / pays_per_year
+            capital = constant_installment_value - interest
+            installment = constant_installment_value
 
-        for i in range(0, paysNum):
-            interest = toPay * percent / paysPerYear
-            capital = constantInstallment - interest
-            installment = constantInstallment
-            excess = 0
-
-            #excess payments
-            if excessPaymentUse and i == excessPayments[excessPaymentsIndex][0] - 1:
-                excess = excessPayments[excessPaymentsIndex][1]
-                excessPaymentsIndex += 1
-                if excessPaymentsIndex >= excessPaymentsCount:
-                    excessPaymentUse = False
+            update = credit_updates.get_credit_update(i, left_to_pay, percent)
+            excess = update.excess_payment
+            percent = update.percentage
 
             capital += excess
-            realValue += capital + interest
+            summary_cost += capital + interest
             timetable.append((installment, interest, capital, excess))
-            toPay -= capital
-            if toPay <= 0:
+            left_to_pay -= capital
+            if left_to_pay <= 0:
                 break
-            if recalculate:
-                constantInstallment = self.__getInstallment(toPay, paysNum - i - 1, percent, paysPerYear)
+            constant_installment_value = self._get_constant_installment_value(
+                left_to_pay, pays_num - i - 1, percent, pays_per_year)
 
-        return timetable, realValue + self.mCommision
+        return timetable, summary_cost + self._credit_commission
 
-    def __getTimetableDecreasing(self, value, paysNum, percent, paysPerYear, excessPayments, recalculate = "TODO"):
-        toPay = value
-        constantCapital = value / paysNum
+    def _get_timetable_decreasing(self, value: float,
+                                  pays_num: int,
+                                  percent: float,
+                                  pays_per_year: int,
+                                  credit_updates: CreditChanges):
+
+        def recalculate(value_left, payment_number):
+            return value_left / payment_number
+
+        left_to_pay = value
+        constant_capital_value = recalculate(value, pays_num)
         timetable = []
-        realValue = 0
+        summary_cost = 0
 
-        excessPaymentsCount = len(excessPayments)
-        excessPaymentUse = excessPaymentsCount > 0 and excessPayments[0][0] > 0
-        excessPaymentsIndex = 0
+        for i in range(0, pays_num):
+            interest = left_to_pay * percent / pays_per_year
+            capital = constant_capital_value
+            installment = constant_capital_value + interest
 
-        for i in range(0, paysNum):
-            interest = toPay * percent / paysPerYear
-            capital = constantCapital
-            installment = constantCapital + interest
-            excess = 0
-
-            #excess payments
-            if excessPaymentUse and i == excessPayments[excessPaymentsIndex][0] - 1:
-                excess = excessPayments[excessPaymentsIndex][1]
-                excessPaymentsIndex += 1
-                if excessPaymentsIndex >= excessPaymentsCount:
-                    excessPaymentUse = False
+            update = credit_updates.get_credit_update(i, left_to_pay, percent)
+            excess = update.excess_payment
+            percent = update.percentage
 
             capital += excess
             timetable.append((installment, interest, capital, excess))
-            realValue += interest + capital
-            toPay -= capital
-            if toPay <= 0:
+            summary_cost += interest + capital
+            left_to_pay -= capital
+            if excess > 0:
+                constant_capital_value = recalculate(left_to_pay, pays_num - i)
+            if left_to_pay <= 0:
                 break
 
-        return timetable, realValue + self.mCommision
+        return timetable, summary_cost + self._credit_commission
 
-    def getTimetable(self, excessPayments = [], constant = True, recalculate = False):
-        '''
-        :param excessPayments: [[month, value], [month, value]...]
-        :param constant: [True if fixed installment ]
-        :return: timetable, mortgage value
-        '''
+    def get_timetable(self, credit_updates: CreditChanges = None, constant: bool = True):
+        """
+        :param credit_updates: list of ExcessPayment objects
+        :param constant: constant installment or decreasing installment
+        :return: timetable, summary costs
+        """
+        credit_updates = copy.deepcopy(credit_updates) or CreditChanges()
         if constant:
-            return self.__getTimetableConstant(
-                self.mValue, self.mPaysNum, self.mPercent, self.mPaysPerYear, excessPayments, recalculate)
-        else:
-            return self.__getTimetableDecreasing(
-                self.mValue, self.mPaysNum, self.mPercent, self.mPaysPerYear, excessPayments, recalculate)
+            return self._get_timetable_constant(self._credit_value,
+                                                self._months,
+                                                self._credit_percentage,
+                                                self._pays_per_year,
+                                                credit_updates)
 
-#example
+        return self._get_timetable_decreasing(self._credit_value,
+                                              self._months,
+                                              self._credit_percentage,
+                                              self._pays_per_year,
+                                              credit_updates)
+
+
 def main():
-    value = 300000
-    years = 20
-    percent = 0.045
+    """Example usage"""
+
+    excess_payments = [
+        ExcessPayment(2, 10000),
+        ExcessPayment(4, 20000),
+    ]
+
+    class CreditParamsUpdateExt(CreditParameterUpdateListener):
+        """Custom listener"""
+        def on_installment(self,
+                           installment_index: int,
+                           left_to_pay: float,
+                           percent: float) -> CreditParameterUpdate:
+            """Example"""
+            result = CreditParameterUpdate(0, percent)
+            # Example of percentage update
+            # if installment_index > 4:
+            #     result.percentage = 0.07
+            return result
+    callback = CreditParamsUpdateExt()
+    updates = CreditChanges(excess_payments, credit_params_callback=callback)
+
+    value = 1000000
+    months = 360
+    percent = 0.04
     commission = 0
 
-    excess = []
-    for i in range(0, 20 * 12): # first year 1k per month
-        excess.append([i + 1, 1000])
-   # offset = len(excess)
-    #for i in range(0 + offset, offset + (1 * 12)):  # second year 2k per month
-        #excess.append([i + 1, 2000])
+    interest_decreasing = Mortgage(credit_value=value, months=months,
+                                   credit_percentage=percent, credit_commission=commission)
 
-    o = Mortgage(value=value, years=years, percent=percent, commission=commission)
-    tt, rv = o.getTimetable(excess, constant=False, recalculate=True)
-    ttn, rvn = o.getTimetable(constant=False, recalculate=True)
+    time_table_decreasing, real_costs_decreasing = interest_decreasing.get_timetable(
+        updates, constant=False)
+    time_table_constant, real_value_constant = interest_decreasing.get_timetable(
+        updates, constant=True)
 
-    for i in range(0, len(ttn)):
-        if len(tt) <= i:
-            r, o, k, n = 0,0,0,0
+    for i in range(0, len(time_table_constant)):
+        if len(time_table_decreasing) <= i:
+            real_cost_decreasing, interest_decreasing = 0, 0
+            capital_decreasing, excess_decreasing = 0, 0
         else:
-            r = tt[i][0]
-            o = tt[i][1]
-            k = tt[i][2]
-            n = tt[i][3]
-        print("%d. installment: %s, interest: %s, capital: %s, excess: %s || installment: %s, interest: %s, capital: %s, excess: %s" % (i+1, ttn[i][0], ttn[i][1], ttn[i][2], ttn[i][3], r, o, k, n))
-    print("Mortgage value 1: " + str(rvn))
-    print("Mortgage value 2: " + str(rv))
-    print("Difference: cash=%s, months=%s;%s, years=%s;%s "  % (str(rvn-rv), str(len(ttn)), str(len(tt)), str(len(ttn)/12), str(len(tt)/12)))
+            real_cost_decreasing = time_table_decreasing[i][0]
+            interest_decreasing = time_table_decreasing[i][1]
+            capital_decreasing = time_table_decreasing[i][2]
+            excess_decreasing = time_table_decreasing[i][3]
+
+        print(
+            f"{i+1}. "
+            f"installment: {time_table_constant[i][0]:.2f}, interest: {time_table_constant[i][1]:.2f}, "
+            f"capital: {time_table_constant[i][2]:.2f}, excess: {time_table_constant[i][3]:.2f} || "
+            f"installment: {real_cost_decreasing:.2f}, interest: {interest_decreasing:.2f}, "
+            f"capital: {capital_decreasing:.2f}, excess: {excess_decreasing:.2f}")
+
+    print(f"Mortgage value constant: {real_value_constant:.2f}, "
+          f"costs: {real_value_constant - value:.2f}")
+    print(f"Mortgage value decreasing: {real_costs_decreasing:.2f}, "
+          f"costs: {real_costs_decreasing - value:.2f}")
+    print(f"Difference: cash={real_value_constant-real_costs_decreasing:.2f}, "
+          f"months={len(time_table_constant)};{len(time_table_decreasing)}, "
+          f"years={len(time_table_constant)/12:.2f};{len(time_table_decreasing)/12:.2f}")
+
 
 if __name__ == '__main__':
     main()
