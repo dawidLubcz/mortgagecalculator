@@ -5,6 +5,8 @@ __doc__ = """Script for calculating and simulating credit costs based on input p
 
 import copy
 import dataclasses
+import argparse
+import re
 
 
 @dataclasses.dataclass
@@ -114,13 +116,13 @@ class CreditChanges:
         return result
 
 
-class Mortgage:
+class Credit:
     """Class for calculating credit fees allows to simulate and plan credit repayment."""
 
     def __init__(self, credit_value: float,
                  credit_percentage: float,
                  months: int = 12,
-                 credit_commission: int = 0):
+                 credit_commission: float = 0):
         """
         :param credit_value: credit value - money to be repaid
         :param credit_percentage: credit percentage
@@ -146,7 +148,7 @@ class Mortgage:
                                 pays_per_year: int,
                                 credit_updates: CreditChanges):
         left_to_pay = value
-        constant_installment_value = Mortgage._get_constant_installment_value(
+        constant_installment_value = Credit._get_constant_installment_value(
             value, pays_num, percent, pays_per_year)
         timetable = []
         summary_cost = 0
@@ -226,66 +228,145 @@ class Mortgage:
                                               credit_updates)
 
 
+class UserInput:
+    """Class which represents user input."""
+
+    class CreditType:
+        """Enum for credit types."""
+        CONSTANT = 0
+        DECREASING = 1
+
+    @staticmethod
+    def _extract_excess_payments(user_input):
+        pattern = re.compile(r"\((\d+),\s*(\d+)\)")
+        result = []
+        for excess_payment in pattern.findall(user_input):
+            result.append(ExcessPayment(
+                month_number=int(excess_payment[0]),
+                value=int(excess_payment[1])))
+        return result
+
+    def __init__(self, argument_parser):
+        credit_type_map = {
+            "0": UserInput.CreditType.CONSTANT,
+            "1": UserInput.CreditType.DECREASING
+        }
+
+        self._value = float(argument_parser.value)
+        self._percentage = float(argument_parser.percentage)
+        self._length = int(argument_parser.length)
+        self._commission = float(argument_parser.commission)
+
+        self._credit_type = UserInput.CreditType.CONSTANT
+        if argument_parser.credittype in credit_type_map:
+            self._credit_type = credit_type_map[argument_parser.credittype]
+
+        self._excess_payments = UserInput._extract_excess_payments(argument_parser.excesspayments)
+
+    @property
+    def value(self):
+        """Credit value/money"""
+        return self._value
+
+    @property
+    def percentage(self):
+        """The interest rate on the loan."""
+        return self._percentage
+
+    @property
+    def length(self):
+        """Credit length in months."""
+        return self._length
+
+    @property
+    def commission(self):
+        """Credit commission."""
+        return self._commission
+
+    @property
+    def credit_type(self):
+        """Equal or decreasing installments."""
+        return self._credit_type
+
+    @property
+    def excess_payments(self):
+        """Excess payments."""
+        return self._excess_payments
+
+
+def _setup_arguments():
+    """Console api"""
+    parser = argparse.ArgumentParser(description='Calculate credit installments.')
+    parser.add_argument('-v', '--value',
+                        help='Credit value.',
+                        default=1000000,
+                        required=False)
+    parser.add_argument('-p', '--percentage',
+                        help='The interest rate on the loan.',
+                        default=0.04,
+                        required=False)
+    parser.add_argument('-l', '--length',
+                        help='Credit length in months.',
+                        default=30*12,
+                        required=False)
+    parser.add_argument('-c', '--commission',
+                        help='Credit commission.',
+                        default=0,
+                        required=False)
+    parser.add_argument('-t', '--credittype',
+                        help='Credit type: 0-constant, 1-decreasing',
+                        default="0",
+                        required=False)
+    parser.add_argument('-e', '--excesspayments',
+                        help='Excess payments - format:(1,1000)(5,1000)',
+                        default="",
+                        required=False)
+    return parser.parse_args()
+
+
 def main():
     """Example usage"""
+    user_input = UserInput(_setup_arguments())
 
-    excess_payments = [
-        ExcessPayment(2, 10000),
-        ExcessPayment(4, 20000),
-    ]
+    print(f"Input=[value={user_input.value}, months={user_input.length}, "
+          f"percentage={user_input.percentage}, commission={user_input.commission}, "
+          f"excess_payments={user_input.excess_payments}]")
 
-    class CreditParamsUpdateExt(CreditParameterUpdateListener):
-        """Custom listener"""
-        def on_installment(self,
-                           installment_index: int,
-                           left_to_pay: float,
-                           percent: float) -> CreditParameterUpdate:
-            """Example"""
-            result = CreditParameterUpdate(0, percent)
-            # Example of percentage update
-            # if installment_index > 4:
-            #     result.percentage = 0.07
-            return result
-    callback = CreditParamsUpdateExt()
-    updates = CreditChanges(excess_payments, credit_params_callback=callback)
+    credit_object = Credit(
+        credit_value=user_input.value,
+        months=user_input.length,
+        credit_percentage=user_input.percentage,
+        credit_commission=user_input.commission)
 
-    value = 1000000
-    months = 360
-    percent = 0.04
-    commission = 0
+    updates = CreditChanges(excess_payments=user_input.excess_payments)
+    time_table, real_value = credit_object.get_timetable(
+        updates, constant=user_input.credit_type == UserInput.CreditType.CONSTANT)
 
-    interest_decreasing = Mortgage(credit_value=value, months=months,
-                                   credit_percentage=percent, credit_commission=commission)
+    print("\nLoan installments:")
+    for i, installment_data in enumerate(time_table):
+        installment = installment_data[0]
+        interest = installment_data[1]
+        capital = installment_data[2]
+        excess = installment_data[3]
 
-    time_table_decreasing, real_costs_decreasing = interest_decreasing.get_timetable(
-        updates, constant=False)
-    time_table_constant, real_value_constant = interest_decreasing.get_timetable(
-        updates, constant=True)
+        print(f"\t{i+1}. "
+              f"installment: {installment:.2f}, interest: {interest:.2f}, "
+              f"capital: {capital:.2f}, excess: {excess:.2f}")
 
-    for i in range(0, len(time_table_constant)):
-        if len(time_table_decreasing) <= i:
-            real_cost_decreasing, interest_decreasing = 0, 0
-            capital_decreasing, excess_decreasing = 0, 0
-        else:
-            real_cost_decreasing = time_table_decreasing[i][0]
-            interest_decreasing = time_table_decreasing[i][1]
-            capital_decreasing = time_table_decreasing[i][2]
-            excess_decreasing = time_table_decreasing[i][3]
+    print(f"""
+Summary:
+  Input:
+   - value={user_input.value}
+   - months={user_input.length}
+   - percentage={user_input.percentage}
+   - commission={user_input.commission}
+   - excess_payments={user_input.excess_payments}
 
-        print(
-            f"{i+1}. "
-            f"installment: {time_table_constant[i][0]:.2f}, interest: {time_table_constant[i][1]:.2f}, "
-            f"capital: {time_table_constant[i][2]:.2f}, excess: {time_table_constant[i][3]:.2f} || "
-            f"installment: {real_cost_decreasing:.2f}, interest: {interest_decreasing:.2f}, "
-            f"capital: {capital_decreasing:.2f}, excess: {excess_decreasing:.2f}")
-
-    print(f"Mortgage value constant: {real_value_constant:.2f}, "
-          f"costs: {real_value_constant - value:.2f}")
-    print(f"Mortgage value decreasing: {real_costs_decreasing:.2f}, "
-          f"costs: {real_costs_decreasing - value:.2f}")
-    print(f"Difference: cash={real_value_constant-real_costs_decreasing:.2f}, "
-          f"months={len(time_table_constant)};{len(time_table_decreasing)}, "
-          f"years={len(time_table_constant)/12:.2f};{len(time_table_decreasing)/12:.2f}")
+  Calculation:
+   - Loan real value: {real_value:.2f}
+   - Costs: {real_value - user_input.value:.2f}
+   - Fees vs value percent={(real_value - user_input.value)/user_input.value*100:.2f}
+""")
 
 
 if __name__ == '__main__':
