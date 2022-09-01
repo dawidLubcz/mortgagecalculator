@@ -235,12 +235,12 @@ class UserInput:
 
     @staticmethod
     def _extract_excess_payments(user_input):
-        pattern = re.compile(r"\((\d+),(\d+)\)")
+        pattern = re.compile(r"\((\d+),\s*(\d+)\)")
         result = []
         for excess_payment in pattern.findall(user_input):
             result.append(ExcessPayment(
-                month_number=excess_payment[0],
-                value=excess_payment[1]))
+                month_number=int(excess_payment[0]),
+                value=int(excess_payment[1])))
         return result
 
     def __init__(self, argument_parser):
@@ -290,7 +290,7 @@ def _setup_arguments():
     parser = argparse.ArgumentParser(description='Calculate credit installments.')
     parser.add_argument('-v', '--value',
                         help='Credit value.',
-                        default=100000,
+                        default=1000000,
                         required=False)
     parser.add_argument('-p', '--percentage',
                         help='The interest rate on the loan.',
