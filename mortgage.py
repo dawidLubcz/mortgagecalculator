@@ -229,7 +229,10 @@ class Credit:
 
 
 class UserInput:
+    """Class which represents user input."""
+
     class CreditType:
+        """Enum for credit types."""
         CONSTANT = 0
         DECREASING = 1
 
@@ -262,26 +265,32 @@ class UserInput:
 
     @property
     def value(self):
+        """Credit value/money"""
         return self._value
 
     @property
     def percentage(self):
+        """The interest rate on the loan."""
         return self._percentage
 
     @property
     def length(self):
+        """Credit length in months."""
         return self._length
 
     @property
     def commission(self):
+        """Credit commission."""
         return self._commission
 
     @property
     def credit_type(self):
+        """Equal or decreasing installments."""
         return self._credit_type
 
     @property
     def excess_payments(self):
+        """Excess payments."""
         return self._excess_payments
 
 
@@ -334,11 +343,11 @@ def main():
         updates, constant=user_input.credit_type == UserInput.CreditType.CONSTANT)
 
     print("\nLoan installments:")
-    for i, v in enumerate(time_table):
-        installment = v[0]
-        interest = v[1]
-        capital = v[2]
-        excess = v[3]
+    for i, installment_data in enumerate(time_table):
+        installment = installment_data[0]
+        interest = installment_data[1]
+        capital = installment_data[2]
+        excess = installment_data[3]
 
         print(f"\t{i+1}. "
               f"installment: {installment:.2f}, interest: {interest:.2f}, "
