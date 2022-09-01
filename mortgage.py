@@ -180,6 +180,7 @@ class Credit:
                                   credit_updates: CreditChanges):
 
         def recalculate(value_left, payment_number):
+            payment_number = payment_number > 0 and payment_number or 1
             return value_left / payment_number
 
         left_to_pay = value
@@ -201,7 +202,7 @@ class Credit:
             summary_cost += interest + capital
             left_to_pay -= capital
             if excess > 0:
-                constant_capital_value = recalculate(left_to_pay, pays_num - i)
+                constant_capital_value = recalculate(left_to_pay, pays_num - i - 1)
             if left_to_pay <= 0:
                 break
 
