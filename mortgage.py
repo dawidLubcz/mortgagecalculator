@@ -257,6 +257,7 @@ class UserInput:
         self._percentage = float(argument_parser.percentage)
         self._length = int(argument_parser.length)
         self._commission = float(argument_parser.commission)
+        self._draw_plots = bool(argument_parser.plots)
 
         self._credit_type = UserInput.CreditType.CONSTANT
         if argument_parser.credittype in credit_type_map:
@@ -294,6 +295,10 @@ class UserInput:
         """Excess payments."""
         return self._excess_payments
 
+    @property
+    def draw_plots(self):
+        """Draw plots switch"""
+        return self._draw_plots
 
 def _setup_arguments():
     """Console api"""
@@ -322,7 +327,35 @@ def _setup_arguments():
                         help='Excess payments - format:(1,1000)(5,1000)',
                         default="",
                         required=False)
+    parser.add_argument('-plt', '--plots',
+                        help='Draw plots switch',
+                        action='store_true',
+                        required=False)
     return parser.parse_args()
+
+
+class TimeTablePlot:
+    @staticmethod
+    def draw_plot(time_table):
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError:
+            print("Plot drawing skipped, matplotlib is not installed.")
+            return
+
+        x_axis = []
+        capital = []
+        interest = []
+        for i, entry in enumerate(time_table):
+            x_axis.append(i + 1)
+            interest.append(entry[1])
+            capital.append(entry[2] + entry[3])
+        width = 0.35
+        plt.subplots(figsize=(10, 7))
+        p2 = plt.bar(x_axis, capital, width)
+        p1 = plt.bar(x_axis, interest, width, bottom=capital)
+        plt.legend((p1[0], p2[0]), ('Interest', 'Capital'))
+        plt.show()
 
 
 def main():
@@ -368,6 +401,9 @@ Summary:
    - Costs: {real_value - user_input.value:.2f}
    - Fees vs value percent={(real_value - user_input.value)/user_input.value*100:.2f}
 """)
+
+    if user_input.draw_plots:
+        TimeTablePlot.draw_plot(time_table=time_table)
 
 
 if __name__ == '__main__':
